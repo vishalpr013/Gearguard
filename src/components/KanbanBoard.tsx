@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { CreateRequestModal } from './CreateRequestModal';
 import { useRequests, useEquipment } from '../hooks/useRealtime';
 import type { Database } from '../lib/database.types';
+import { useAuth } from '../contexts/AuthContext';
 
 type Request = Database['public']['Tables']['requests']['Row'];
 type Status = 'New' | 'In Progress' | 'Repaired' | 'Scrap';
@@ -38,7 +40,7 @@ export function KanbanBoard() {
       if (response.ok) {
         const { data } = await response.json();
         const riskMap: EquipmentRisk = {};
-        data.forEach((stat: any) => {
+        data.forEach((stat: { equipment_id: string; is_high_risk: boolean }) => {
           riskMap[stat.equipment_id] = stat.is_high_risk;
         });
         setHighRiskEquipment(riskMap);
@@ -52,7 +54,15 @@ export function KanbanBoard() {
 
   const columns: Status[] = ['New', 'In Progress', 'Repaired', 'Scrap'];
 
+  const { profile, user } = useAuth();
+  const userMetaRole = user && typeof user.user_metadata === 'object' && user.user_metadata !== null
+    ? (user.user_metadata as { role?: string }).role
+    : undefined;
+  const isManager = profile?.role === 'manager' || userMetaRole === 'manager';
+
   const handleDragStart = (e: React.DragEvent, request: Request) => {
+    // Only managers can drag/update request statuses
+    if (!isManager) return;
     setDraggedRequest(request);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -64,6 +74,12 @@ export function KanbanBoard() {
 
   const handleDrop = async (e: React.DragEvent, targetStatus: Status) => {
     e.preventDefault();
+
+    // Only managers can change request status
+    if (!isManager) {
+      alert('Insufficient permissions to update request status');
+      return;
+    }
 
     if (!draggedRequest || draggedRequest.status === targetStatus) {
       setDraggedRequest(null);
@@ -88,6 +104,10 @@ export function KanbanBoard() {
     setUpdatingRequest(requestId);
 
     try {
+      if (!isManager) {
+        throw new Error('Insufficient permissions to update request status');
+      }
+
       const { supabase } = await import('../lib/supabase');
       const session = await supabase.auth.getSession();
 
@@ -119,6 +139,33 @@ export function KanbanBoard() {
     }
   };
 
+  const deleteRequest = async (requestId: string) => {
+    if (!isManager) {
+      alert('Insufficient permissions to delete request');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this request?')) return;
+
+    setUpdatingRequest(requestId);
+
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const session = await supabase.auth.getSession();
+
+      if (!session.data.session) {
+        throw new Error('Not authenticated');
+      }
+
+      const { error } = await supabase.from('requests').delete().eq('id', requestId);
+      if (error) throw error;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete request');
+    } finally {
+      setUpdatingRequest(null);
+    }
+  };
+
   const getEquipmentName = (equipmentId: string) => {
     const eq = equipment.find(e => e.id === equipmentId);
     return eq?.name || 'Unknown';
@@ -128,8 +175,36 @@ export function KanbanBoard() {
     return highRiskEquipment[equipmentId] || false;
   };
 
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
   return (
     <div className="h-full p-6 overflow-x-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-slate-900">Kanban Board</h1>
+        <div>
+          {isManager ? (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-blue-600 text-white px-3 py-2 rounded-lg flex items-center gap-2"
+              title="Create Request"
+            >
+              <Plus className="w-4 h-4" />
+              New
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {user && user.user_metadata && (user.user_metadata as { role?: string }).role === 'manager' && !profile?.role && (
+            <div className="mt-2 text-xs text-amber-700">Account pending verification — complete sign-in after email confirmation to enable manager actions.</div>
+          )}
+        </div>
+      </div>
+
+      {showCreateModal && (
+        <CreateRequestModal onClose={() => setShowCreateModal(false)} />
+      )}
+
       <div className="flex gap-4 min-w-max h-full">
         {columns.map((status) => (
           <div
@@ -151,17 +226,30 @@ export function KanbanBoard() {
                 .map((request) => (
                   <div
                     key={request.id}
-                    draggable={updatingRequest !== request.id}
+                    draggable={isManager && updatingRequest !== request.id}
                     onDragStart={(e) => handleDragStart(e, request)}
-                    className={`bg-white rounded-lg p-4 shadow-sm border border-slate-200 cursor-move hover:shadow-md transition-shadow ${
+                    className={`bg-white rounded-lg p-4 shadow-sm border border-slate-200 ${isManager ? 'cursor-move hover:shadow-md' : ''} transition-shadow ${
                       updatingRequest === request.id ? 'opacity-50' : ''
                     }`}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <h3 className="font-medium text-slate-900 flex-1">{request.title}</h3>
-                      {isHighRisk(request.equipment_id) && (
-                        <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 ml-2" />
-                      )}
+
+                      <div className="flex items-center gap-2">
+                        {isHighRisk(request.equipment_id) && (
+                          <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                        )}
+
+                        {isManager && (
+                          <button
+                            onClick={async () => deleteRequest(request.id)}
+                            className="p-1 hover:bg-slate-100 rounded-md transition-colors"
+                            title="Delete Request"
+                          >
+                            <Trash2 className="w-4 h-4 text-slate-500" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <p className="text-sm text-slate-600 mb-3">{request.description}</p>

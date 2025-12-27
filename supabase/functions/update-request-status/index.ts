@@ -115,12 +115,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       status: payload.new_status,
     };
 
     if (payload.duration_hours) {
-      updateData.duration_hours = payload.duration_hours;
+      (updateData as Record<string, unknown>).duration_hours = payload.duration_hours;
     }
 
     const { data: updatedRequest, error: updateError } = await supabase

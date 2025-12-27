@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useEquipment } from '../hooks/useRealtime';
+import { useAuth } from '../contexts/AuthContext';
 
 interface CreateRequestModalProps {
   scheduledDate?: string | null;
@@ -9,17 +10,45 @@ interface CreateRequestModalProps {
 
 export function CreateRequestModal({ scheduledDate, onClose }: CreateRequestModalProps) {
   const { equipment } = useEquipment();
-  const [formData, setFormData] = useState({
-    equipment_id: '',
-    type: scheduledDate ? 'Preventive' : 'Corrective',
-    title: '',
-    description: '',
-    scheduled_date: scheduledDate || '',
+  const [formData, setFormData] = useState(() => {
+    // try hydrate draft to avoid losing typed data if modal closes
+    try {
+      const raw = localStorage.getItem('createRequestDraft_v1');
+      if (raw) return { ...JSON.parse(raw), type: scheduledDate ? 'Preventive' : 'Corrective', scheduled_date: scheduledDate || '' };
+    } catch (e) {}
+    return {
+      equipment_id: '',
+      type: scheduledDate ? 'Preventive' : 'Corrective',
+      title: '',
+      description: '',
+      scheduled_date: scheduledDate || '',
+    };
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // persist draft
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      localStorage.setItem('createRequestDraft_v1', JSON.stringify(formData));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [formData]);
+
+  useEffect(() => {
+    // clear draft when modal closes
+    return () => {
+      localStorage.removeItem('createRequestDraft_v1');
+    };
+  }, []);
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  const { profile, user } = useAuth();
+  const userMetaRole = user && typeof user.user_metadata === 'object' && user.user_metadata !== null
+    ? (user.user_metadata as { role?: string }).role
+    : undefined;
+  const isManager = profile?.role === 'manager' || userMetaRole === 'manager';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +56,12 @@ export function CreateRequestModal({ scheduledDate, onClose }: CreateRequestModa
 
     if (!formData.equipment_id || !formData.title) {
       setError('Please fill in all required fields');
+      return;
+    }
+
+    // Require an active profile with role manager (RLS depends on users table)
+    if (profile?.role !== 'manager') {
+      setError('Your account is not fully activated as a manager yet. Please confirm your email and sign in to enable manager actions.');
       return;
     }
 

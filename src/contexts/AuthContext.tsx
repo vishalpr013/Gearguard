@@ -60,8 +60,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+
+    // Ensure a profile exists after sign-in (useful when sign-up required email confirmation).
+    if (data?.user) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (!fetchErr && !existing) {
+        // Create a minimal profile if it's missing. Use role from auth user metadata if present.
+        // Supabase types can be finicky with this TypeScript version — ignore here
+        // @ts-expect-error supabase-type-issue
+        const { error: insertErr } = await supabase.from<'users'>('users').insert([{
+          id: data.user.id,
+          email,
+          full_name: data.user.user_metadata?.full_name || '',
+          role: (data.user.user_metadata as { role?: string } | undefined)?.role || 'technician',
+          team_id: null,
+        } as Database['public']['Tables']['users']['Insert']]);
+
+        if (insertErr) throw insertErr;
+      }
+
+      // Load profile into context so UI shows name/role immediately
+      await loadProfile(data.user.id);
+    }
   };
 
   const signUp = async (
@@ -71,19 +98,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     role: 'manager' | 'technician',
     teamId?: string
   ) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    // Pass the user's full name and role into auth user metadata so it can be used later
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          role,
+        },
+      },
+    });
     if (error) throw error;
 
-    if (data.user) {
-      const { error: profileError } = await (supabase.from('users') as any).insert({
+    // If the project requires email confirmation, signUp will not return an active session.
+    // In that case the client is not authenticated yet and cannot insert into `users` due to RLS.
+    // Only create the profile now when a session exists (user is logged in immediately).
+    if (data.user && data.session) {
+      // Supabase types can be finicky with this TypeScript version — ignore here
+      // @ts-expect-error supabase-type-issue
+      const { error: profileError } = await supabase.from<'users'>('users').insert([{
         id: data.user.id,
         email,
         full_name: fullName,
         role,
         team_id: teamId || null,
-      });
+      } as Database['public']['Tables']['users']['Insert']]);
 
       if (profileError) throw profileError;
+
+      // Load profile into context so UI shows name/role immediately
+      await loadProfile(data.user.id);
     }
   };
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle, Clock, Wrench } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, Wrench, Plus, Trash2 } from 'lucide-react';
 import { useEquipment } from '../hooks/useRealtime';
+import { useAuth } from '../contexts/AuthContext';
+import { AddEquipmentModal } from './AddEquipmentModal';
 
 interface EquipmentStats {
   equipment_id: string;
@@ -17,6 +19,12 @@ export function EquipmentDashboard() {
   const [loading, setLoading] = useState(true);
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const { profile, user } = useAuth();
+  const userMetaRole = user && typeof user.user_metadata === 'object' && user.user_metadata !== null
+    ? (user.user_metadata as { role?: string }).role
+    : undefined;
+  const isManager = profile?.role === 'manager' || userMetaRole === 'manager';
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -61,12 +69,54 @@ export function EquipmentDashboard() {
     );
   }
 
+  const deleteEquipment = async (equipmentId: string) => {
+    if (!isManager) {
+      alert('Insufficient permissions to delete equipment');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this equipment?')) return;
+
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const session = await supabase.auth.getSession();
+
+      if (!session.data.session) {
+        throw new Error('Not authenticated');
+      }
+
+      const { error } = await supabase.from('equipment').delete().eq('id', equipmentId);
+      if (error) throw error;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete equipment');
+    }
+  };
+
   return (
     <div className="h-full p-6 overflow-y-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Equipment Dashboard</h1>
-        <p className="text-slate-600">Live monitoring of all equipment assets and performance metrics</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Equipment Dashboard</h1>
+          <p className="text-slate-600">Live monitoring of all equipment assets and performance metrics</p>
+        </div>
+
+        <div>
+          {isManager ? (
+            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-3 py-2 rounded-lg flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Add Equipment
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {user && user.user_metadata && (user.user_metadata as { role?: string }).role === 'manager' && !profile?.role && (
+            <div className="mt-2 text-xs text-amber-700">Account pending verification — complete sign-in after email confirmation to enable manager actions.</div>
+          )}
+        </div>
       </div>
+
+      {showAddModal && <AddEquipmentModal onClose={() => setShowAddModal(false)} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {stats.map((stat) => {
@@ -100,6 +150,16 @@ export function EquipmentDashboard() {
                   <div className="bg-slate-700 text-white px-3 py-1 rounded-full text-xs font-medium">
                     Scrapped
                   </div>
+                )}
+
+                {isManager && (
+                  <button
+                    onClick={() => deleteEquipment(stat.equipment_id)}
+                    className="ml-3 p-1 hover:bg-slate-100 rounded-md transition-colors"
+                    title="Delete Equipment"
+                  >
+                    <Trash2 className="w-4 h-4 text-slate-500" />
+                  </button>
                 )}
               </div>
 

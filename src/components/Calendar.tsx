@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useRequests, useEquipment } from '../hooks/useRealtime';
 import { CreateRequestModal } from './CreateRequestModal';
+import { useAuth } from '../contexts/AuthContext';
 
 export function Calendar() {
   const { requests } = useRequests();
@@ -67,21 +68,54 @@ export function Calendar() {
     return eq?.name || 'Unknown';
   };
 
+  const { profile, user } = useAuth();
+  const userMetaRole = user && typeof user.user_metadata === 'object' && user.user_metadata !== null
+    ? (user.user_metadata as { role?: string }).role
+    : undefined;
+  const isManager = profile?.role === 'manager' || userMetaRole === 'manager';
+
+  const deleteScheduledRequest = async (requestId: string) => {
+    if (!isManager) {
+      alert('Insufficient permissions to delete scheduled request');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this scheduled request?')) return;
+
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const session = await supabase.auth.getSession();
+
+      if (!session.data.session) {
+        throw new Error('Not authenticated');
+      }
+
+      const { error } = await supabase.from('requests').delete().eq('id', requestId);
+      if (error) throw error;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete scheduled request');
+    }
+  };
+
   return (
     <div className="h-full p-6 overflow-y-auto">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-slate-900">Preventive Maintenance Calendar</h1>
-          <button
-            onClick={() => {
-              setSelectedDate(null);
-              setShowCreateModal(true);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Schedule Maintenance
-          </button>
+          {isManager ? (
+            <button
+              onClick={() => {
+                setSelectedDate(null);
+                setShowCreateModal(true);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Schedule Maintenance
+            </button>
+          ) : (
+            <div />
+          )}
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
@@ -185,6 +219,16 @@ export function Calendar() {
                   <div className="text-sm font-medium text-slate-700">
                     {new Date(req.scheduled_date!).toLocaleDateString()}
                   </div>
+
+                  {isManager && (
+                    <button
+                      onClick={() => deleteScheduledRequest(req.id)}
+                      className="ml-4 p-1 hover:bg-slate-100 rounded-md transition-colors"
+                      title="Delete Scheduled Request"
+                    >
+                      <Trash2 className="w-4 h-4 text-slate-500" />
+                    </button>
+                  )}
                 </div>
               ))}
             {preventiveRequests.filter(r => new Date(r.scheduled_date!) >= new Date()).length === 0 && (

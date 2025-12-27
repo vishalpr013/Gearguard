@@ -8,6 +8,7 @@ export function AuthForm() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'manager' | 'technician'>('technician');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -20,13 +21,14 @@ export function AuthForm() {
 
     try {
       if (isSignUp) {
-        // Sign up new user with default role as 'technician'
-        await signUp(email, password, name, 'technician');
+        // Sign up new user with selected role
+        await signUp(email, password, name, role);
         setSuccess('Account created successfully! Please sign in.');
         // Reset form and switch to sign in
         setName('');
         setEmail('');
         setPassword('');
+        setRole('technician');
         setIsSignUp(false);
       } else {
         await signIn(email, password);
@@ -113,6 +115,35 @@ export function AuthForm() {
                   placeholder="John Doe"
                   required
                 />
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Role</label>
+                  <div className="flex gap-3">
+                    <label className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${role === 'technician' ? 'bg-white' : 'bg-slate-50'}`}>
+                      <input
+                        type="radio"
+                        name="role"
+                        value="technician"
+                        checked={role === 'technician'}
+                        onChange={() => setRole('technician')}
+                        className="hidden"
+                      />
+                      🔧 Technician
+                    </label>
+
+                    <label className={`inline-flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${role === 'manager' ? 'bg-white' : 'bg-slate-50'}`}>
+                      <input
+                        type="radio"
+                        name="role"
+                        value="manager"
+                        checked={role === 'manager'}
+                        onChange={() => setRole('manager')}
+                        className="hidden"
+                      />
+                      👔 Manager
+                    </label>
+                  </div>
+                </div>
               </div>
             )}
 

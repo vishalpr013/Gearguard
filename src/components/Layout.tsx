@@ -8,7 +8,11 @@ import { Calendar } from './Calendar';
 type View = 'kanban' | 'dashboard' | 'calendar';
 
 export function Layout() {
-  const { profile, signOut } = useAuth();
+  const { profile, user, signOut } = useAuth();
+  const metaRole = user && typeof user.user_metadata === 'object' && user.user_metadata !== null
+    ? (user.user_metadata as { role?: string }).role
+    : undefined;
+  const displayRole = profile?.role || metaRole || 'technician';
   const [currentView, setCurrentView] = useState<View>('kanban');
 
   const navigation = [
@@ -46,7 +50,9 @@ export function Layout() {
                   <User className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <div className="font-semibold text-slate-900">{profile?.full_name || 'User'}</div>
+                  <div className="font-semibold text-slate-900">
+                  {profile?.full_name || user?.user_metadata?.full_name || user?.email || 'User'}
+                </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span
                       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -55,7 +61,7 @@ export function Layout() {
                           : 'bg-blue-100 text-blue-800'
                       }`}
                     >
-                      {profile?.role === 'manager' ? '👔 Manager' : '🔧 Technician'}
+                      {displayRole === 'manager' ? '👔 Manager' : '🔧 Technician'}
                     </span>
                   </div>
                 </div>
